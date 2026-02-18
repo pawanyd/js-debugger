@@ -2,24 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import Layout from './components/Layout/Layout';
 import { executeCode } from './engine/executor';
 import examples from './examples/index';
+import { useTheme } from './hooks/useTheme';
 
 const defaultCode = examples[0]?.code || '// Write your JavaScript code here\nconsole.log("Hello, world!");';
 
 export default function App() {
   // Theme
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('js-visualizer-theme');
-      if (saved) return saved === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem('js-visualizer-theme', isDark ? 'dark' : 'light');
-  }, [isDark]);
+  const { isDark, toggleTheme } = useTheme();
 
   // Code
   const [code, setCode] = useState(defaultCode);
@@ -116,7 +105,7 @@ export default function App() {
       currentExampleId={currentExampleId}
       onExampleSelect={handleExampleSelect}
       isDark={isDark}
-      onToggleTheme={() => setIsDark((d) => !d)}
+      onToggleTheme={toggleTheme}
     />
   );
 }

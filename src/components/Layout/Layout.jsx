@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Code2, Sun, Moon, Github, AlertTriangle } from 'lucide-react';
+import { Code2, Sun, Moon, Github, AlertTriangle, User } from 'lucide-react';
 
 import CodeEditor from '../CodeEditor/CodeEditor';
 import CallStack from '../CallStack/CallStack';
@@ -108,6 +108,15 @@ export default function Layout({
               <Moon className="w-4 h-4 text-slate-600" />
             )}
           </motion.button>
+          <a
+            href="https://pawanyd.github.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+            aria-label="Portfolio"
+          >
+            <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          </a>
           <a
             href="https://github.com/pawanyd"
             target="_blank"
