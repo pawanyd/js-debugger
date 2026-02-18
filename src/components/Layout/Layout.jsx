@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Code2, Sun, Moon, Github, AlertTriangle, User } from 'lucide-react';
+import { Code2, Sun, Moon, Github, AlertTriangle, User, TrendingUp } from 'lucide-react';
 
 import CodeEditor from '../CodeEditor/CodeEditor';
 import CallStack from '../CallStack/CallStack';
@@ -14,6 +14,8 @@ import ConsoleOutput from '../ConsoleOutput/ConsoleOutput';
 import StepDescription from '../StepDescription/StepDescription';
 import ExecutionControls from '../ExecutionControls/ExecutionControls';
 import ExampleSelector from '../ExampleSelector/ExampleSelector';
+import ComplexityModal from '../ComplexityModal/ComplexityModal';
+import { analyzeComplexity } from '../../utils/complexityAnalyzer';
 
 export default function Layout({
   // Code editor
@@ -35,6 +37,7 @@ export default function Layout({
   heap = [],
   consoleOutput = [],
   currentStep = null,
+  trace = [], // Add trace prop for complexity analysis
 
   // Controls
   isPlaying = false,
@@ -59,6 +62,10 @@ export default function Layout({
   onToggleTheme,
 }) {
   const [activeTab, setActiveTab] = useState('runtime');
+  const [showComplexityModal, setShowComplexityModal] = useState(false);
+  
+  // Calculate complexity from trace
+  const complexity = analyzeComplexity(trace);
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white overflow-hidden">
@@ -98,8 +105,18 @@ export default function Layout({
           />
         </div>
 
-        {/* Right: Theme toggle & links */}
+        {/* Right: Complexity, Theme toggle & links */}
         <div className="flex items-center gap-2">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowComplexityModal(true)}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-medium transition-all shadow-sm"
+            aria-label="Show complexity analysis"
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>Complexity</span>
+          </motion.button>
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
@@ -271,6 +288,13 @@ export default function Layout({
           onRun={onRun}
         />
       </footer>
+
+      {/* Complexity Modal */}
+      <ComplexityModal
+        isOpen={showComplexityModal}
+        onClose={() => setShowComplexityModal(false)}
+        complexity={complexity}
+      />
     </div>
   );
 }

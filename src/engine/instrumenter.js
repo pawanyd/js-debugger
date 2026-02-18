@@ -1043,8 +1043,20 @@ export function generateTrace(code) {
 
     // Array/Object native methods
     if (typeof obj === 'object' && obj !== null && typeof obj[prop] === 'function') {
-      const result = obj[prop](...args)
+      // Wrap TracedFunction arguments so native methods can call them
+      const wrappedArgs = args.map(arg => {
+        if (arg instanceof TracedFunction) {
+          // Return a native function that calls our TracedFunction
+          return function(...callArgs) {
+            return invokeFunction(arg, arg.name, callArgs, env, line)
+          }
+        }
+        return arg
+      })
+      
+      const result = obj[prop](...wrappedArgs)
       syncScopes(env)
+      tracer.addStep(line, 'call', `${prop}() on ${Array.isArray(obj) ? 'array' : 'object'}`)
       return result
     }
 

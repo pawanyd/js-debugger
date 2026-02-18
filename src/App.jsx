@@ -98,6 +98,7 @@ export default function App() {
       heap={currentStep?.memoryHeap || []}
       consoleOutput={currentStep?.consoleOutput || []}
       currentStep={currentStep ? { type: currentStep.type, description: currentStep.description } : null}
+      trace={trace}
       isPlaying={isPlaying}
       currentStepIndex={currentStepIndex}
       totalSteps={totalSteps}
