@@ -334,7 +334,13 @@ export function generateTrace(code) {
     // Init
     if (node.init) {
       if (node.init.type === 'VariableDeclaration') {
-        execVariableDeclaration(node.init, loopEnv)
+        // var is function-scoped, so declare in parent env
+        // let/const are block-scoped, so declare in loop env
+        if (node.init.kind === 'var') {
+          execVariableDeclaration(node.init, env)
+        } else {
+          execVariableDeclaration(node.init, loopEnv)
+        }
       } else {
         evalExpression(node.init, loopEnv)
       }
