@@ -64,7 +64,67 @@ export function analyzeComplexity(trace) {
   let timeCategory = 'Constant';
   let timeDescription = 'Executes in constant time regardless of input size';
 
-  if (loops > 0) {
+  // Check for recursion FIRST (before loops) to catch divide-and-conquer algorithms
+  if (functionCalls > 5) {
+    // Check for recursive patterns
+    const callsByFunction = {};
+    let maxRecursiveDepth = 0;
+    let recursiveCallCount = 0;
+    let lastFunctionName = '';
+    
+    trace.forEach((step, i) => {
+      if (step.type === 'call') {
+        const funcName = step.description.split('(')[0].replace('Calling ', '');
+        callsByFunction[funcName] = (callsByFunction[funcName] || 0) + 1;
+        
+        // Track recursive depth by checking call stack
+        if (step.callStack) {
+          const depth = step.callStack.filter(call => call.name.includes(funcName)).length;
+          maxRecursiveDepth = Math.max(maxRecursiveDepth, depth);
+        }
+        
+        // Count recursive calls (same function called again)
+        if (funcName === lastFunctionName) {
+          recursiveCallCount++;
+        }
+        lastFunctionName = funcName;
+      }
+    });
+    
+    // Find recursive functions
+    const recursiveFunctions = Object.entries(callsByFunction).filter(([_, count]) => count > 2);
+    
+    if (recursiveFunctions.length > 0 && maxRecursiveDepth > 2) {
+      // Analyze recursion pattern
+      const totalRecursiveCalls = recursiveFunctions.reduce((sum, [_, count]) => sum + count, 0);
+      const avgCallsPerDepth = totalRecursiveCalls / maxRecursiveDepth;
+      
+      // Check if it's divide-and-conquer (like merge sort, quick sort)
+      // These have log(n) depth with multiple calls per level
+      // Also check if there are loops (merge sort has loops in merge function)
+      if (maxRecursiveDepth > 3 && (avgCallsPerDepth > 1.3 || loops > 0)) {
+        timeNotation = 'O(n log n)';
+        timeCategory = 'Linearithmic';
+        timeDescription = `Divide-and-conquer algorithm (recursion depth: ${maxRecursiveDepth}) - typical of merge sort, quick sort - execution time grows as n log n`;
+        // Skip loop analysis since we found divide-and-conquer
+      }
+      // Check if it's exponential (like Fibonacci)
+      else if (avgCallsPerDepth > 3 || totalRecursiveCalls > maxRecursiveDepth * 5) {
+        timeNotation = 'O(2ⁿ)';
+        timeCategory = 'Exponential';
+        timeDescription = `Recursive function with multiple branches (depth: ${maxRecursiveDepth}) - typical of naive Fibonacci - execution time doubles with each input increase`;
+      }
+      // Linear recursion (like factorial, countdown)
+      else {
+        timeNotation = 'O(n)';
+        timeCategory = 'Linear';
+        timeDescription = `Linear recursive function (depth: ${maxRecursiveDepth}) - typical of factorial, countdown - execution time grows linearly with recursion depth`;
+      }
+    }
+  }
+  
+  // Only check loops if we haven't already determined complexity from recursion
+  if (timeNotation === 'O(1)' && loops > 0) {
     // Check for nested loops by tracking active loops
     let activeLoops = 0;
     let maxNesting = 0;
@@ -111,72 +171,7 @@ export function analyzeComplexity(trace) {
       timeCategory = 'Linear';
       timeDescription = 'Contains a loop - execution time grows linearly with input size';
     }
-  } else if (functionCalls > 10) {
-    // Check for recursive patterns
-    const callsByFunction = {};
-    let maxRecursiveDepth = 0;
-    let currentDepth = 0;
-    let lastFunctionName = '';
-    let recursiveCallCount = 0;
-    
-    trace.forEach((step, i) => {
-      if (step.type === 'call') {
-        const funcName = step.description.split('(')[0].replace('Calling ', '');
-        callsByFunction[funcName] = (callsByFunction[funcName] || 0) + 1;
-        
-        // Track recursive depth by checking call stack
-        if (step.callStack) {
-          const depth = step.callStack.filter(call => call.name.includes(funcName)).length;
-          maxRecursiveDepth = Math.max(maxRecursiveDepth, depth);
-        }
-        
-        // Count recursive calls (same function called again)
-        if (funcName === lastFunctionName) {
-          recursiveCallCount++;
-        }
-        lastFunctionName = funcName;
-      }
-    });
-    
-    // Find the most called function
-    const maxCalls = Math.max(...Object.values(callsByFunction));
-    const recursiveFunctions = Object.entries(callsByFunction).filter(([_, count]) => count > 3);
-    
-    if (recursiveFunctions.length > 0 && maxRecursiveDepth > 2) {
-      // Analyze recursion pattern
-      const totalRecursiveCalls = recursiveFunctions.reduce((sum, [_, count]) => sum + count, 0);
-      const avgCallsPerDepth = totalRecursiveCalls / maxRecursiveDepth;
-      
-      // Check if it's divide-and-conquer (like merge sort, binary search)
-      // These typically have log(n) depth with multiple calls per level
-      if (maxRecursiveDepth > 5 && avgCallsPerDepth > 1.5 && avgCallsPerDepth < 3) {
-        timeNotation = 'O(n log n)';
-        timeCategory = 'Linearithmic';
-        timeDescription = `Divide-and-conquer algorithm (depth: ${maxRecursiveDepth}) - typical of merge sort, quick sort - execution time grows as n log n`;
-      }
-      // Check if it's exponential (like Fibonacci)
-      // Multiple branches per call, calls grow exponentially
-      else if (avgCallsPerDepth > 3 || totalRecursiveCalls > maxRecursiveDepth * 5) {
-        timeNotation = 'O(2ⁿ)';
-        timeCategory = 'Exponential';
-        timeDescription = `Recursive function with multiple branches (depth: ${maxRecursiveDepth}) - typical of naive Fibonacci - execution time doubles with each input increase`;
-      }
-      // Linear recursion (like factorial, countdown)
-      else {
-        timeNotation = 'O(n)';
-        timeCategory = 'Linear';
-        timeDescription = `Linear recursive function (depth: ${maxRecursiveDepth}) - typical of factorial, countdown - execution time grows linearly with recursion depth`;
-      }
-    } else if (recursiveFunctions.length > 0) {
-      timeNotation = 'O(n)';
-      timeCategory = 'Linear';
-      timeDescription = 'Recursive function - execution time grows linearly with recursion depth';
-    } else {
-      timeNotation = 'O(n)';
-      timeCategory = 'Linear';
-      timeDescription = 'Multiple function calls - execution time grows with number of operations';
-    }
-  } else if (totalSteps > 50) {
+  } else if (timeNotation === 'O(1)' && totalSteps > 50) {
     timeNotation = 'O(n)';
     timeCategory = 'Linear';
     timeDescription = 'Multiple operations - execution time grows with input size';
