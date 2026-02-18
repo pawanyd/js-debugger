@@ -875,12 +875,16 @@ export function generateTrace(code) {
     const callback = args[0]
     const label = '.then() callback'
 
+    // Create a new promise for the chained result
+    const chainedPromise = { __isPromise: true, __resolvedValue: undefined }
+
     if (callback instanceof TracedFunction) {
       pendingMicrotasks.push({
         label,
         tracedFn: callback,
         closureEnv: callback.closureEnv,
-        resolvedValue: promiseObj && promiseObj.__resolvedValue,
+        sourcePromise: promiseObj, // Store reference to source promise, not the value
+        chainedPromise, // Store reference to update after execution
       })
     }
 
@@ -888,8 +892,8 @@ export function generateTrace(code) {
     syncScopes(env)
     tracer.addStep(line, 'microtask', `Promise.then() — callback added to Microtask Queue`)
 
-    // Return the promise for chaining
-    return { __isPromise: true, __resolvedValue: promiseObj && promiseObj.__resolvedValue }
+    // Return the chained promise
+    return chainedPromise
   }
 
   function evalMethodCall(node, args, env, line) {
@@ -1373,8 +1377,21 @@ export function generateTrace(code) {
       tracer.addStep(null, 'eventloop', `Event Loop: Processing microtask — ${task.label}`)
 
       if (task.tracedFn instanceof TracedFunction) {
-        const callbackArgs = task.resolvedValue !== undefined ? [task.resolvedValue] : []
-        invokeFunction(task.tracedFn, task.tracedFn.name, callbackArgs, globalEnv, null)
+        // Look up the resolved value from the source promise at execution time
+        const resolvedValue = task.sourcePromise ? task.sourcePromise.__resolvedValue : undefined
+        const callbackArgs = resolvedValue !== undefined ? [resolvedValue] : []
+        const result = invokeFunction(task.tracedFn, task.tracedFn.name, callbackArgs, globalEnv, null)
+        
+        // Update the chained promise with the result
+        if (task.chainedPromise) {
+          if (result && result.__isPromise) {
+            // If callback returned a promise, use its resolved value
+            task.chainedPromise.__resolvedValue = result.__resolvedValue
+          } else {
+            // Otherwise use the direct return value
+            task.chainedPromise.__resolvedValue = result
+          }
+        }
       }
     }
 
@@ -1417,8 +1434,21 @@ export function generateTrace(code) {
         tracer.addStep(null, 'eventloop', `Event Loop: Processing microtask — ${task.label}`)
 
         if (task.tracedFn instanceof TracedFunction) {
-          const callbackArgs = task.resolvedValue !== undefined ? [task.resolvedValue] : []
-          invokeFunction(task.tracedFn, task.tracedFn.name, callbackArgs, globalEnv, null)
+          // Look up the resolved value from the source promise at execution time
+          const resolvedValue = task.sourcePromise ? task.sourcePromise.__resolvedValue : undefined
+          const callbackArgs = resolvedValue !== undefined ? [resolvedValue] : []
+          const result = invokeFunction(task.tracedFn, task.tracedFn.name, callbackArgs, globalEnv, null)
+          
+          // Update the chained promise with the result
+          if (task.chainedPromise) {
+            if (result && result.__isPromise) {
+              // If callback returned a promise, use its resolved value
+              task.chainedPromise.__resolvedValue = result.__resolvedValue
+            } else {
+              // Otherwise use the direct return value
+              task.chainedPromise.__resolvedValue = result
+            }
+          }
         }
       }
     }
