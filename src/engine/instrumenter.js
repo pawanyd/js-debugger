@@ -878,10 +878,17 @@ export function generateTrace(code) {
       : node.callee.property.name
 
     // Promise.resolve()
-    if (obj === getPromiseStub() && prop === 'resolve') {
+    if (obj && obj.__isPromiseConstructor && prop === 'resolve') {
       syncScopes(env)
       tracer.addStep(line, 'promise', `Promise.resolve(${args.map(a => fmt(a)).join(', ')})`)
       return { __isPromise: true, __resolvedValue: args[0] }
+    }
+
+    // Promise.reject()
+    if (obj && obj.__isPromiseConstructor && prop === 'reject') {
+      syncScopes(env)
+      tracer.addStep(line, 'promise', `Promise.reject(${args.map(a => fmt(a)).join(', ')})`)
+      return { __isPromise: true, __rejectedValue: args[0] }
     }
 
     // Array/Object native methods
@@ -957,24 +964,17 @@ export function generateTrace(code) {
     tracer.addStep(line, 'promise', 'new Promise() — executor runs synchronously')
 
     if (executor instanceof TracedFunction) {
-      // Create resolve/reject functions
-      const resolveFn = (val) => {
+      // Create resolve/reject functions as native functions
+      const resolveFn = function resolve(val) {
         promiseObj.__resolvedValue = val
       }
-      const rejectFn = () => {}
-
-      // Execute the executor synchronously
-      const execEnv = createEnv(executor.closureEnv, 'Promise-executor', 'function')
-      for (let i = 0; i < executor.params.length; i++) {
-        const pName = executor.params[i].type === 'Identifier' ? executor.params[i].name : `arg${i}`
-        const pVal = i === 0 ? resolveFn : rejectFn
-        envDefine(execEnv, pName, pVal, 'let')
+      const rejectFn = function reject(reason) {
+        promiseObj.__rejectedValue = reason
       }
 
+      // Call the executor with resolve and reject
       tracer.pushCall('Promise(executor)', line)
-      tracer.enterScope('Promise-executor', 'function')
-      execBlockOrStatement(executor.body, execEnv)
-      tracer.exitScope()
+      invokeFunction(executor, 'Promise-executor', [resolveFn, rejectFn], env, line)
       tracer.popCall()
       syncScopes(env)
     }
@@ -998,10 +998,14 @@ export function generateTrace(code) {
   function invokeFunction(callee, calleeName, args, env, line) {
     // Native JS functions
     if (typeof callee === 'function') {
-      const result = callee(...args)
-      syncScopes(env)
-      tracer.addStep(line, 'call', `${calleeName}(${args.map(a => fmt(a)).join(', ')}) → ${fmt(result)}`)
-      return result
+      try {
+        const result = callee(...args)
+        syncScopes(env)
+        tracer.addStep(line, 'call', `${calleeName}(${args.map(a => fmt(a)).join(', ')}) → ${fmt(result)}`)
+        return result
+      } catch (err) {
+        throw new Error(`Error calling ${calleeName}: ${err.message}`)
+      }
     }
 
     // User-defined traced function
