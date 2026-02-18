@@ -25,6 +25,25 @@ export function executeCode(code) {
   try {
     const steps = generateTrace(code)
 
+    // Safety check: if too many steps, truncate and warn
+    if (steps.length > 1500) {
+      console.warn(`Generated ${steps.length} steps, truncating to 1500 for performance`)
+      steps.length = 1500
+      steps.push({
+        line: null,
+        type: 'warning',
+        description: 'Trace truncated at 1500 steps for performance. Code may be too complex for visualization.',
+        callStack: [],
+        scopes: [],
+        consoleOutput: [],
+        webApis: [],
+        callbackQueue: [],
+        microtaskQueue: [],
+        memoryHeap: [],
+        eventLoopPhase: 'idle'
+      })
+    }
+
     // Check if the last step is an error
     const lastStep = steps[steps.length - 1]
     const hasError = lastStep && lastStep.type === 'error'
@@ -35,6 +54,7 @@ export function executeCode(code) {
     }
   } catch (err) {
     // Unexpected errors that weren't caught by the instrumenter
+    console.error('Execution error:', err)
     return {
       steps: [],
       error: err.message || 'An unexpected error occurred during execution.',

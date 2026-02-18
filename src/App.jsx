@@ -45,10 +45,23 @@ export default function App() {
     setError(null);
     try {
       const result = executeCode(code);
-      setTrace(result.steps || []);
-      setError(result.error || null);
+      const steps = result.steps || [];
+      
+      // Warn if too many steps
+      if (steps.length > 1000) {
+        console.warn(`Generated ${steps.length} steps. This may cause performance issues.`);
+        setError(`Warning: Generated ${steps.length} steps. Visualization may be slow. Consider simplifying your code.`);
+      }
+      
+      setTrace(steps);
+      if (!result.error && steps.length > 1000) {
+        // Don't override the warning with null
+      } else {
+        setError(result.error || null);
+      }
       setCurrentStepIndex(0);
     } catch (err) {
+      console.error('Execution error:', err);
       setTrace([]);
       setError(err.message || 'An unexpected error occurred');
       setCurrentStepIndex(0);

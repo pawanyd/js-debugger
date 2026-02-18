@@ -1,7 +1,7 @@
 import { parseCode } from './parser.js'
 import { createTracer } from './tracer.js'
 
-const MAX_STEPS = 500
+const MAX_STEPS = 2000
 
 /**
  * Generate an execution trace for the given JavaScript code.
@@ -21,7 +21,7 @@ export function generateTrace(code) {
 
   function checkStepLimit() {
     if (stepCount >= MAX_STEPS) {
-      throw new StepLimitError('Execution limit reached (500 steps). Possible infinite loop.')
+      throw new StepLimitError(`Execution limit reached (${MAX_STEPS} steps). Possible infinite loop or code too complex.`)
     }
     stepCount++
   }
@@ -205,7 +205,8 @@ export function generateTrace(code) {
       if (node.type === 'VariableDeclaration' && node.kind === 'var') {
         for (const decl of node.declarations) {
           if (decl.id && decl.id.type === 'Identifier') {
-            if (!envHas(env, decl.id.name)) {
+            // Check if variable already exists in THIS scope (not parent scopes)
+            if (!(decl.id.name in env.vars)) {
               envDefine(env, decl.id.name, undefined, 'var')
             }
           }
@@ -1055,7 +1056,7 @@ export function generateTrace(code) {
 
     // Method is a TracedFunction on the object
     if (obj && obj[prop] instanceof TracedFunction) {
-      return invokeFunction(obj[prop], prop, args, env, line)
+      return invokeFunction(obj[prop], prop, args, env, line, obj)
     }
 
     // Native function
@@ -1181,7 +1182,7 @@ export function generateTrace(code) {
     return undefined
   }
 
-  function invokeFunction(callee, calleeName, args, env, line) {
+  function invokeFunction(callee, calleeName, args, env, line, thisArg = null) {
     // Native JS functions
     if (typeof callee === 'function') {
       try {
@@ -1202,6 +1203,17 @@ export function generateTrace(code) {
 
       // Create function scope
       const fnEnv = createEnv(callee.closureEnv, callee.name, 'function')
+
+      // Set 'this' - if thisArg is null/undefined, use global object (non-strict mode)
+      // Find the global environment (the one with no parent)
+      let globalEnv = env
+      while (globalEnv.parent) {
+        globalEnv = globalEnv.parent
+      }
+      
+      // Create a global object that references global variables
+      const globalThis = thisArg !== null && thisArg !== undefined ? thisArg : createGlobalThisProxy(globalEnv)
+      envDefine(fnEnv, 'this', globalThis, 'const')
 
       // Bind parameters
       for (let i = 0; i < callee.params.length; i++) {
@@ -1274,6 +1286,25 @@ export function generateTrace(code) {
     throw new Error(`${calleeName} is not a function`)
   }
 
+  // Create a proxy object that accesses global environment variables
+  function createGlobalThisProxy(globalEnv) {
+    const proxy = {}
+    // Copy all global variables to the proxy object
+    for (const key in globalEnv.vars) {
+      Object.defineProperty(proxy, key, {
+        get() {
+          return globalEnv.vars[key].value
+        },
+        set(val) {
+          globalEnv.vars[key] = { ...globalEnv.vars[key], value: val }
+        },
+        enumerable: true,
+        configurable: true
+      })
+    }
+    return proxy
+  }
+
   function evalFunctionExpression(node, env) {
     const name = node.id ? node.id.name : 'anonymous'
     return new TracedFunction(name, node.params, node.body, env)
@@ -1321,7 +1352,9 @@ export function generateTrace(code) {
     }
 
     if (obj === null || obj === undefined) {
-      throw new Error(`Cannot read property '${prop}' of ${obj}`)
+      // In non-strict mode, accessing properties on undefined returns undefined
+      // instead of throwing an error (for educational purposes)
+      return undefined
     }
     return obj[prop]
   }
