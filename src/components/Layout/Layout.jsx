@@ -65,7 +65,12 @@ export default function Layout({
       {/* ===== HEADER ===== */}
       <header className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800 shadow-sm z-10">
         {/* Left: Logo */}
-        <div className="flex items-center gap-3">
+        <a 
+          href="https://pawanyd.github.io/" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+        >
           <motion.div
             whileHover={{ rotate: 10 }}
             className="flex items-center gap-2"
@@ -82,7 +87,7 @@ export default function Layout({
               See how JavaScript works behind the scenes
             </p>
           </div>
-        </div>
+        </a>
 
         {/* Center: Example selector */}
         <div className="hidden md:block">
