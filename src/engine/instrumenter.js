@@ -660,6 +660,26 @@ export function generateTrace(code) {
       }
     }
 
+    if (node.operator === 'delete') {
+      const line = node.loc ? node.loc.start.line : null
+      
+      // delete obj.prop or delete obj[prop]
+      if (node.argument.type === 'MemberExpression') {
+        const obj = evalExpression(node.argument.object, env)
+        const prop = node.argument.computed
+          ? evalExpression(node.argument.property, env)
+          : node.argument.property.name
+        
+        const result = delete obj[prop]
+        syncScopes(env)
+        tracer.addStep(line, 'assignment', `delete ${fmt(obj)}.${prop} → ${result}`)
+        return result
+      }
+      
+      // delete identifier (always returns true in non-strict mode)
+      return true
+    }
+
     const arg = evalExpression(node.argument, env)
     switch (node.operator) {
       case '-': return -arg
@@ -891,6 +911,131 @@ export function generateTrace(code) {
       return { __isPromise: true, __rejectedValue: args[0] }
     }
 
+    // Function.call(thisArg, ...args)
+    if ((typeof obj === 'function' || obj instanceof TracedFunction) && prop === 'call') {
+      const thisArg = args[0]
+      const fnArgs = args.slice(1)
+      
+      if (obj instanceof TracedFunction) {
+        syncScopes(env)
+        tracer.addStep(line, 'call', `${obj.name}.call(${fmt(thisArg)}, ${fnArgs.map(a => fmt(a)).join(', ')})`)
+        
+        // Create function scope with custom 'this'
+        const fnEnv = createEnv(obj.closureEnv, obj.name, 'function')
+        envDefine(fnEnv, 'this', thisArg, 'const')
+        
+        // Bind parameters
+        for (let i = 0; i < obj.params.length; i++) {
+          const param = obj.params[i]
+          const paramName = param.type === 'Identifier' ? param.name : `arg${i}`
+          envDefine(fnEnv, paramName, fnArgs[i], 'let')
+        }
+        
+        // Hoist declarations
+        if (obj.body.type === 'BlockStatement') {
+          hoistDeclarations(obj.body.body, fnEnv)
+        }
+        
+        tracer.pushCall(`${obj.name}()`, line)
+        tracer.enterScope(obj.name, 'function')
+        syncScopes(fnEnv)
+        
+        // Execute function body
+        let result
+        if (obj.body.type === 'BlockStatement') {
+          for (const stmt of obj.body.body) {
+            result = execStatement(stmt, fnEnv)
+            if (result instanceof ReturnSignal) {
+              result = result.value
+              break
+            }
+          }
+        } else {
+          result = evalExpression(obj.body, fnEnv)
+        }
+        
+        if (result instanceof ReturnSignal) {
+          result = result.value
+        }
+        
+        tracer.exitScope()
+        tracer.popCall()
+        syncScopes(env)
+        tracer.addStep(line, 'return', `${obj.name}.call() returned ${fmt(result)}`)
+        
+        return result
+      } else if (typeof obj === 'function') {
+        // Native function
+        syncScopes(env)
+        const result = obj.call(thisArg, ...fnArgs)
+        tracer.addStep(line, 'call', `function.call(${fmt(thisArg)}, ${fnArgs.map(a => fmt(a)).join(', ')}) → ${fmt(result)}`)
+        return result
+      }
+    }
+
+    // Function.apply(thisArg, argsArray)
+    if ((typeof obj === 'function' || obj instanceof TracedFunction) && prop === 'apply') {
+      const thisArg = args[0]
+      const argsArray = args[1] || []
+      const fnArgs = Array.isArray(argsArray) ? argsArray : []
+      
+      if (obj instanceof TracedFunction) {
+        syncScopes(env)
+        tracer.addStep(line, 'call', `${obj.name}.apply(${fmt(thisArg)}, ${fmt(argsArray)})`)
+        
+        // Create function scope with custom 'this'
+        const fnEnv = createEnv(obj.closureEnv, obj.name, 'function')
+        envDefine(fnEnv, 'this', thisArg, 'const')
+        
+        // Bind parameters
+        for (let i = 0; i < obj.params.length; i++) {
+          const param = obj.params[i]
+          const paramName = param.type === 'Identifier' ? param.name : `arg${i}`
+          envDefine(fnEnv, paramName, fnArgs[i], 'let')
+        }
+        
+        // Hoist declarations
+        if (obj.body.type === 'BlockStatement') {
+          hoistDeclarations(obj.body.body, fnEnv)
+        }
+        
+        tracer.pushCall(`${obj.name}()`, line)
+        tracer.enterScope(obj.name, 'function')
+        syncScopes(fnEnv)
+        
+        // Execute function body
+        let result
+        if (obj.body.type === 'BlockStatement') {
+          for (const stmt of obj.body.body) {
+            result = execStatement(stmt, fnEnv)
+            if (result instanceof ReturnSignal) {
+              result = result.value
+              break
+            }
+          }
+        } else {
+          result = evalExpression(obj.body, fnEnv)
+        }
+        
+        if (result instanceof ReturnSignal) {
+          result = result.value
+        }
+        
+        tracer.exitScope()
+        tracer.popCall()
+        syncScopes(env)
+        tracer.addStep(line, 'return', `${obj.name}.apply() returned ${fmt(result)}`)
+        
+        return result
+      } else if (typeof obj === 'function') {
+        // Native function
+        syncScopes(env)
+        const result = obj.apply(thisArg, fnArgs)
+        tracer.addStep(line, 'call', `function.apply(${fmt(thisArg)}, ${fmt(argsArray)}) → ${fmt(result)}`)
+        return result
+      }
+    }
+
     // Array/Object native methods
     if (typeof obj === 'object' && obj !== null && typeof obj[prop] === 'function') {
       const result = obj[prop](...args)
@@ -934,10 +1079,13 @@ export function generateTrace(code) {
       return handleNewPromise(node, args, env, line)
     }
 
-    // new Array(), new Object(), etc
+    // new Array(), new Object(), etc - native constructors
     const Ctor = evalExpression(node.callee, env)
-    if (typeof Ctor === 'function') {
-      return new Ctor(...args)
+    if (typeof Ctor === 'function' && !(Ctor instanceof TracedFunction)) {
+      const result = new Ctor(...args)
+      syncScopes(env)
+      tracer.addStep(line, 'call', `new ${node.callee.name || 'Constructor'}(${args.map(a => fmt(a)).join(', ')})`)
+      return result
     }
 
     // TracedFunction as constructor
@@ -945,12 +1093,50 @@ export function generateTrace(code) {
       const obj = {}
       const ctorEnv = createEnv(Ctor.closureEnv, Ctor.name, 'function')
       envDefine(ctorEnv, 'this', obj, 'const')
+      
+      // Bind parameters
       for (let i = 0; i < Ctor.params.length; i++) {
-        const paramName = Ctor.params[i].type === 'Identifier' ? Ctor.params[i].name : `arg${i}`
+        const param = Ctor.params[i]
+        const paramName = param.type === 'Identifier' ? param.name : `arg${i}`
         envDefine(ctorEnv, paramName, args[i], 'let')
       }
-      execStatement(Ctor.body, ctorEnv)
-      return obj
+      
+      // Hoist declarations
+      if (Ctor.body.type === 'BlockStatement') {
+        hoistDeclarations(Ctor.body.body, ctorEnv)
+      }
+      
+      tracer.pushCall(`new ${Ctor.name}()`, line)
+      tracer.enterScope(Ctor.name, 'function')
+      syncScopes(ctorEnv)
+      tracer.addStep(line, 'call', `new ${Ctor.name}(${args.map(a => fmt(a)).join(', ')})`)
+      
+      // Execute constructor body
+      let result
+      if (Ctor.body.type === 'BlockStatement') {
+        for (const stmt of Ctor.body.body) {
+          result = execStatement(stmt, ctorEnv)
+          if (result instanceof ReturnSignal) {
+            result = result.value
+            break
+          }
+        }
+      } else {
+        result = evalExpression(Ctor.body, ctorEnv)
+      }
+      
+      tracer.exitScope()
+      tracer.popCall()
+      syncScopes(env)
+      
+      // If constructor explicitly returns an object, use that; otherwise use 'this'
+      if (result && typeof result === 'object' && result !== null) {
+        tracer.addStep(line, 'return', `Constructor returned ${fmt(result)}`)
+        return result
+      } else {
+        tracer.addStep(line, 'return', `Constructor returned this: ${fmt(obj)}`)
+        return obj
+      }
     }
 
     return {}
