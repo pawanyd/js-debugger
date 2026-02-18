@@ -57,24 +57,38 @@ export function analyzeComplexity(trace) {
   let timeDescription = 'Executes in constant time regardless of input size';
 
   if (loops > 0) {
-    // Check for nested loops
-    const nestedLoops = trace.filter((step, i) => {
-      if (step.type === 'loop' && i > 0) {
-        // Check if there's another loop in recent steps
-        const recentSteps = trace.slice(Math.max(0, i - 10), i);
-        return recentSteps.some(s => s.type === 'loop');
+    // Check for nested loops by tracking active loops
+    let activeLoops = 0;
+    let maxNesting = 0;
+    
+    trace.forEach((step) => {
+      if (step.type === 'loop') {
+        if (step.description.includes('started')) {
+          activeLoops++;
+          maxNesting = Math.max(maxNesting, activeLoops);
+        } else if (step.description.includes('condition') && step.description.includes('false')) {
+          // Loop ended
+          activeLoops = Math.max(0, activeLoops - 1);
+        }
       }
-      return false;
-    }).length;
+    });
 
-    if (nestedLoops > loops / 2) {
+    if (maxNesting >= 3) {
+      timeNotation = 'O(n³)';
+      timeCategory = 'Cubic';
+      timeDescription = 'Contains triple-nested loops - execution time grows cubically with input size';
+    } else if (maxNesting === 2) {
       timeNotation = 'O(n²)';
       timeCategory = 'Quadratic';
       timeDescription = 'Contains nested loops - execution time grows quadratically with input size';
+    } else if (loops > 1) {
+      timeNotation = 'O(n)';
+      timeCategory = 'Linear';
+      timeDescription = 'Contains multiple sequential loops - execution time grows linearly with input size';
     } else {
       timeNotation = 'O(n)';
       timeCategory = 'Linear';
-      timeDescription = 'Contains loops - execution time grows linearly with input size';
+      timeDescription = 'Contains a loop - execution time grows linearly with input size';
     }
   } else if (functionCalls > 10) {
     // Check for recursive patterns
